@@ -50,7 +50,7 @@ metadata:
   name: lustre-kmod-installer
 imageTag:
   name: gke.gcr.io/lustre-kmod-installer
-  newTag: "v999.0.0"
+  newTag: "v0.6.9-gke.3"
 ---
 apiVersion: builtin
 kind: ImageTagTransformer
@@ -58,5 +58,5 @@ metadata:
   name: imagetag-lustre-csi-driver
 imageTag:
   name: gke.gcr.io/lustre-csi-driver
-  newTag: "v999.0.0"
+  newTag: "v0.6.9-gke.3"
 
