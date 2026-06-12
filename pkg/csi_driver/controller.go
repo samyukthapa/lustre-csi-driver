@@ -512,6 +512,12 @@ func (s *controllerServer) generateUniqueFilesystemName(ctx context.Context, ins
 	}
 	allLocations, err := s.cloudProvider.LustreService.ListLocations(ctx, &lustre.ListFilter{Project: instance.Project})
 	if err != nil {
+		if lustre.IsPermissionDeniedErr(err) {
+			klog.Warningf("ListLocations permission denied, skipping filesystem name uniqueness check: %v", err)
+
+			return generateRandomID()
+		}
+
 		return "", err
 	}
 	targetZones := filterZonesByRegion(allLocations, targetRegion)
