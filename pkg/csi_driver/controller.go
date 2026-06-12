@@ -199,7 +199,7 @@ func (s *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolu
 	defer s.volumeLocks.Release(volumeName)
 
 	instance, err := s.cloudProvider.LustreService.GetInstance(ctx, newInstance)
-	if err != nil && !lustre.IsNotFoundErr(err) {
+	if err != nil && !lustre.IsNotFoundErr(err) && !lustre.IsPermissionDeniedErr(err) {
 		return nil, lustre.StatusError(err)
 	}
 	if instance != nil {

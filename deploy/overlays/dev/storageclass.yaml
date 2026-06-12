@@ -27,3 +27,4 @@ allowedTopologies:
         - us-central1-a
 parameters:
   perUnitStorageThroughput: "1000"
+  network: k8s-vpc

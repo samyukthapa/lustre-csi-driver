@@ -46,6 +46,7 @@ var (
 	boskosResourceType   = flag.String("boskos-resource-type", "gke-internal-project", "name of the boskos resource type to reserve")
 	storageClassFiles    = flag.String("storageclass-files", "storage-class.yaml", "name of storageclass yaml file to use for test relative to test/k8s-integration/config")
 	inProw               = flag.Bool("run-in-prow", false, "whether the test is running in PROW")
+	ossCluster           = flag.Bool("oss-cluster", false, "run tests against an existing non-GKE (OSS) cluster using the current kubeconfig, bypassing GKE cluster bringup/teardown")
 	cleanupLeakyInstance = flag.Bool("cleanup-leaky-instance", true, "whether to cleanup leaky lustre instance before and after test")
 
 	// Driver flags.
@@ -115,25 +116,33 @@ func main() {
 	ensureVariable(testFocus, true, "test-focus is a required flag")
 	ensureVariable(pkgDir, true, "pkg-dir is a required flag")
 
-	if len(*gceRegion) != 0 {
-		ensureVariable(gceZone, false, "gce-zone and gce-region cannot both be set")
+	if *ossCluster {
+		ensureFlag(bringupCluster, false, "'bringup-cluster' must be false when using 'oss-cluster'")
+		ensureFlag(doNetworkSetup, false, "'do-network-setup' must be false when using 'oss-cluster'")
+		ensureFlag(useManagedDriver, false, "'use-gke-driver' must be false when using 'oss-cluster'")
 	} else {
-		ensureVariable(gceZone, true, "One of gce-zone or gce-region must be set")
+		if len(*gceRegion) != 0 {
+			ensureVariable(gceZone, false, "gce-zone and gce-region cannot both be set")
+		} else {
+			ensureVariable(gceZone, true, "One of gce-zone or gce-region must be set")
+		}
 	}
 
 	ensureVariable(testVersion, true, "test-version is a required flag.")
 
-	if !*bringupCluster && len(*gkeTestClusterName) == 0 {
-		klog.Fatalf("gke-cluster-name must be set when using a pre-existing cluster")
-	}
+	if !*ossCluster {
+		if !*bringupCluster && len(*gkeTestClusterName) == 0 {
+			klog.Fatalf("gke-cluster-name must be set when using a pre-existing cluster")
+		}
 
-	if len(*gkeTestClusterName) == 0 {
-		randSuffix := string(uuid.NewUUID())[0:4]
-		*gkeTestClusterName = gkeTestClusterPrefix + "-" + randSuffix
-	}
+		if len(*gkeTestClusterName) == 0 {
+			randSuffix := string(uuid.NewUUID())[0:4]
+			*gkeTestClusterName = gkeTestClusterPrefix + "-" + randSuffix
+		}
 
-	if *numNodes == -1 && *bringupCluster {
-		klog.Fatalf("num-nodes must be set to number of nodes in cluster")
+		if *numNodes == -1 && *bringupCluster {
+			klog.Fatalf("num-nodes must be set to number of nodes in cluster")
+		}
 	}
 
 	err := handle()
@@ -209,18 +218,21 @@ func handle() error {
 	testParams.testDir = filepath.Join(k8sParentDir, "kubernetes")
 	defer removeDir(k8sParentDir)
 
-	testParams.cloudProviderArgs = getGKEKubeTestArgs(*gceZone, *gceRegion, project)
-	var env string
-	for _, arg := range testParams.cloudProviderArgs {
-		if strings.HasPrefix(arg, "--environment=") {
-			envSplit := strings.Split(arg, "=")
-			if len(envSplit) > 1 {
-				// Full arg example: --environment=staging
-				env = envSplit[1]
+	multiNicUsable := false
+	if !*ossCluster {
+		testParams.cloudProviderArgs = getGKEKubeTestArgs(*gceZone, *gceRegion, project)
+		var env string
+		for _, arg := range testParams.cloudProviderArgs {
+			if strings.HasPrefix(arg, "--environment=") {
+				envSplit := strings.Split(arg, "=")
+				if len(envSplit) > 1 {
+					// Full arg example: --environment=staging
+					env = envSplit[1]
+				}
 			}
 		}
+		multiNicUsable = isMultiNicUsable(env)
 	}
-	multiNicUsable := isMultiNicUsable(env)
 	if *doNetworkSetup {
 		if err := setupNetwork(project); err != nil {
 			return fmt.Errorf("failed to setup VPC network: %w", err)
@@ -373,14 +385,22 @@ func runTestsWithConfig(testParams *testParameters, testConfigArg, reportPrefix 
 
 	// Usage: kubetest2 <deployer> [Flags] [DeployerFlags] -- [TesterArgs]
 	// [Flags]
+	deployer := "gke"
+	if *ossCluster {
+		deployer = "noop"
+	}
 	kubeTest2Args := []string{
-		"gke",
+		deployer,
 		fmt.Sprintf("--run-id=%s", runID),
 		"--test=ginkgo",
 	}
 
 	// [DeployerFlags]
-	kubeTest2Args = append(kubeTest2Args, testParams.cloudProviderArgs...)
+	if *ossCluster {
+		kubeTest2Args = append(kubeTest2Args, fmt.Sprintf("--kubeconfig=%s", kubeconfig))
+	} else {
+		kubeTest2Args = append(kubeTest2Args, testParams.cloudProviderArgs...)
+	}
 	if kubetestDumpDir != "" {
 		kubeTest2Args = append(kubeTest2Args, fmt.Sprintf("--artifacts=%s", kubetestDumpDir))
 	}
