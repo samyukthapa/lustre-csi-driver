@@ -225,7 +225,7 @@ func (s *controllerServer) CreateVolume(ctx context.Context, req *csi.CreateVolu
 		// In the event of a stockout, the instance will be destroyed if the CreateInstance operation fails.
 		// We should query the operation to retrieve the error and prevent the CSI driver from attempting to call CreateInstance again.
 		op, err := s.cloudProvider.LustreService.GetCreateInstanceOp(ctx, newInstance)
-		if err != nil {
+		if err != nil && !lustre.IsPermissionDeniedErr(err) {
 			return nil, lustre.StatusError(err)
 		}
 		if op != nil && op.GetError() != nil {
